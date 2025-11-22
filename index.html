@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Mini E-Commerce (Single File)</title>
+
+  <!-- ===== CSS (inline) ===== -->
+  <style>
+    :root{--accent:#1f6feb;--muted:#666}
+    *{box-sizing:border-box}
+    body{font-family:Inter,ui-sans-serif,system-ui,Helvetica,Arial;margin:0;background:#f5f7fb;color:#111}
+    header{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;background:#0e1726;color:#fff}
+    header h1{margin:0;font-size:20px}
+    .nav button{margin-left:8px;padding:8px 10px;border-radius:6px;border:0;background:#fff;color:#0e1726;cursor:pointer}
+    main{padding:20px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}
+    .card{background:#fff;border-radius:10px;padding:12px;box-shadow:0 4px 10px rgba(12,20,32,0.06);display:flex;flex-direction:column;gap:8px}
+    .card img{width:100%;height:150px;object-fit:cover;border-radius:8px}
+    .card h4{margin:0;font-size:16px}
+    .card p{margin:0;color:var(--muted);font-size:13px}
+    .card .row{display:flex;align-items:center;justify-content:space-between;margin-top:6px}
+    .btn{padding:8px 10px;border-radius:8px;border:0;background:var(--accent);color:#fff;cursor:pointer}
+    .small{padding:6px 8px;border-radius:8px;border:1px solid #ddd;background:#fff}
+    /* modal */
+    .modal{position:fixed;inset:0;background:rgba(4,8,17,0.55);display:flex;align-items:center;justify-content:center;z-index:40}
+    .modal.hidden{display:none}
+    .modal-card{width:360px;background:#fff;border-radius:12px;padding:18px;box-shadow:0 8px 30px rgba(11,18,35,0.2)}
+    .modal-card h3{margin:0 0 8px 0}
+    .modal-card input{width:100%;padding:10px;margin-bottom:8px;border-radius:8px;border:1px solid #e6e9ef}
+    .muted{color:var(--muted);font-size:13px}
+    /* cart panel */
+    .cart{position:fixed;right:20px;top:80px;width:320px;background:#fff;padding:12px;border-radius:10px;box-shadow:0 8px 24px rgba(11,18,35,0.12);z-index:35}
+    .cart.hidden{display:none}
+    .cart-items{max-height:300px;overflow:auto;margin-bottom:10px}
+    .cart-item{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px dashed #eee}
+    footer{padding:20px;text-align:center;color:var(--muted);font-size:13px}
+    @media (max-width:520px){.modal-card{width:92%}}
+  </style>
+</head>
+<body>
+
+  <!-- ===== Header ===== -->
+  <header>
+    <h1>Mini Shop</h1>
+    <div class="nav">
+      <button id="btn-login" class="small">Login</button>
+      <button id="btn-register" class="small">Register</button>
+      <button id="btn-cart" class="small">Cart (<span id="cart-count">0</span>)</button>
+    </div>
+  </header>
+
+  <!-- ===== Main content ===== -->
+  <main>
+    <section id="products" class="grid" aria-live="polite"></section>
+  </main>
+
+  <!-- ===== Modal for login/register ===== -->
+  <div id="modal" class="modal hidden" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <h3 id="modal-title">Login</h3>
+      <input id="username" placeholder="Username" autocomplete="username" />
+      <input id="password" placeholder="Password" type="password" autocomplete="current-password" />
+      <input id="email" placeholder="Email (register only)" style="display:none" autocomplete="email" />
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">
+        <button id="modal-submit" class="btn">Submit</button>
+        <button id="modal-close" class="small">Close</button>
+      </div>
+      <div id="modal-msg" class="muted" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+  <!-- ===== Cart panel ===== -->
+  <aside id="cart-panel" class="cart hidden" aria-hidden="true">
+    <h4 style="margin:0 0 8px 0">Your Cart</h4>
+    <div id="cart-items" class="cart-items"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+      <strong>Total: ₹<span id="cart-total">0</span></strong>
+      <div style="display:flex;gap:8px">
+        <button id="checkout" class="btn">Checkout</button>
+        <button id="close-cart" class="small">Close</button>
+      </div>
+    </div>
+  </aside>
+
+  <footer>Demo app — not production ready. Use bcrypt, tokens and validation for real apps.</footer>
+
+  <!-- ===== JavaScript (inline) ===== -->
+  <script>
+  (function(){
+    // API endpoints (adjust if your backend runs on other host/port)
+    const API = {
+      products: '/api/products',
+      product: id => '/api/products/' + id,
+      register: '/api/auth/register',
+      login: '/api/auth/login',
+      checkout: '/api/orders/checkout'
+    };
+
+    // small SVG placeholders encoded as data URLs (so file is standalone)
+    const SVG_TSHIRT = 'data:image/svg+xml;utf8,' + encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600"><rect fill="%23f8fafc" width="100%" height="100%"/><g fill="%23333"><rect x="180" y="140" width="440" height="320" rx="20"/></g><text x="50%" y="92%" font-size="48" text-anchor="middle" fill="%23999">T-SHIRT</text></svg>'
+    );
+    const SVG_SNEAK = 'data:image/svg+xml;utf8,' + encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600"><rect fill="%23fff" width="100%" height="100%"/><g fill="%23333"><ellipse cx="400" cy="320" rx="320" ry="120"/></g><text x="50%" y="92%" font-size="48" text-anchor="middle" fill="%23999">SNEAKERS</text></svg>'
+    );
+    const SVG_CAP = 'data:image/svg+xml;utf8,' + encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600"><rect fill="%23fbfbfb" width="100%" height="100%"/><path d="M120 300 q280 -220 560 0 v120 q-280 160 -560 0z" fill="%23333"/><text x="50%" y="92%" font-size="48" text-anchor="middle" fill="%23999">CAP</text></svg>'
+    );
+
+    // front-end state (persisted in localStorage)
+    const state = {
+      user: JSON.parse(localStorage.getItem('mini_user') || 'null'),
+      cart: JSON.parse(localStorage.getItem('mini_cart') || '[]'),
+      productsCache: []
+    };
+
+    function persist(){
+      localStorage.setItem('mini_cart', JSON.stringify(state.cart));
+      localStorage.setItem('mini_user', JSON.stringify(state.user));
+      document.getElementById('cart-count').innerText = state.cart.reduce((s,i)=>s+i.quantity,0);
+    }
+
+    // ===== load products from backend =====
+    async function loadProducts(){
+      try{
+        const res = await fetch(API.products, {cache:'no-store'});
+        if(!res.ok) throw new Error('Products fetch failed');
+        const prods = await res.json();
+        state.productsCache = prods;
+        renderProducts(prods);
+      } catch(err){
+        // fallback: show message and demo items if API not present
+        console.warn(err);
+        const demo = [
+          {id:1, name:'Basic T-Shirt', description:'100% cotton, comfortable fit', price:199.00, image_url:SVG_TSHIRT},
+          {id:2, name:'Sneakers', description:'Running shoes with great support', price:2499.00, image_url:SVG_SNEAK},
+          {id:3, name:'Baseball Cap', description:'Adjustable cap with logo', price:499.00, image_url:SVG_CAP}
+        ];
+        state.productsCache = demo;
+        renderProducts(demo);
+      }
+    }
+
+    function renderProducts(products){
+      const container = document.getElementById('products');
+      container.innerHTML = '';
+      products.forEach(p => {
+        const card = document.createElement('article');
+        card.className = 'card';
+        card.innerHTML = `
+          <img src="${escapeHtml(p.image_url || SVG_TSHIRT)}" alt="${escapeHtml(p.name)}">
+          <h4>${escapeHtml(p.name)}</h4>
+          <p>${escapeHtml(p.description || '')}</p>
+          <div class="row">
+            <div style="font-weight:600">₹${Number(p.price).toLocaleString()}</div>
+            <div>
+              <button class="small" data-id="${p.id}" data-action="view">See</button>
+              <button class="btn" data-id="${p.id}" data-action="add">Add</button>
+            </div>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+
+      // attach listeners
+      container.querySelectorAll('button[data-action="add"]').forEach(b=>b.addEventListener('click', onAdd));
+      container.querySelectorAll('button[data-action="view"]').forEach(b=>b.addEventListener('click', onView));
+    }
+
+    // ===== helpers =====
+    function escapeHtml(str){ return String(str).replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));}
+
+    // ===== product actions =====
+    async function onAdd(e){
+      const id = Number(e.currentTarget.dataset.id);
+      // try to fetch details from backend, fallback to cached
+      let p = state.productsCache.find(x=>Number(x.id)===id);
+      try {
+        const res = await fetch(API.product(id));
+        if(res.ok) p = await res.json();
+      } catch(_) {}
+      if(!p) { alert('Product not found'); return; }
+      const existing = state.cart.find(i=>i.id===Number(p.id));
+      if(existing) existing.quantity++;
+      else state.cart.push({ id: Number(p.id), name: p.name, price: Number(p.price), quantity: 1 });
+      persist();
+      flash('Added to cart');
+    }
+
+    async function onView(e){
+      const id = Number(e.currentTarget.dataset.id);
+      // show quick detail modal (reuse modal)
+      let p = state.productsCache.find(x=>Number(x.id)===id);
+      try {
+        const res = await fetch(API.product(id));
+        if(res.ok) p = await res.json();
+      } catch(_) {}
+      openQuickView(p);
+    }
+
+    // small flash notification
+    function flash(msg){
+      const el = document.createElement('div');
+      el.textContent = msg;
+      el.style.position = 'fixed'; el.style.left='50%'; el.style.transform='translateX(-50%)';
+      el.style.bottom='24px'; el.style.background='rgba(16,24,40,0.95)'; el.style.color='white';
+      el.style.padding='10px 14px'; el.style.borderRadius='10px'; el.style.zIndex=80;
+      document.body.appendChild(el);
+      setTimeout(()=> el.style.opacity='0', 1400);
+      setTimeout(()=> document.body.removeChild(el), 2000);
+    }
+
+    // ===== modal (login/register) =====
+    const modal = document.getElementById('modal');
+    const modalTitle = document.getElementById('modal-title');
+    const modalMsg = document.getElementById('modal-msg');
+    let modalMode = 'login'; // or 'register'
+
+    document.getElementById('btn-login').addEventListener('click', ()=>openModal('login'));
+    document.getElementById('btn-register').addEventListener('click', ()=>openModal('register'));
+    document.getElementById('modal-close').addEventListener('click', closeModal);
+    document.getElementById('modal-submit').addEventListener('click', submitModal);
+
+    function openModal(mode){
+      modalMode = mode;
+      modalTitle.textContent = mode === 'login' ? 'Login' : 'Register';
+      document.getElementById('email').style.display = mode === 'register' ? 'block' : 'none';
+      modalMsg.textContent = '';
+      document.getElementById('username').value = '';
+      document.getElementById('password').value = '';
+      document.getElementById('email').value = '';
+      modal.classList.remove('hidden');
+      modal.setAttribute('aria-hidden','false');
+    }
+    function closeModal(){
+      modal.classList.add('hidden');
+      modal.setAttribute('aria-hidden','true');
+    }
+
+    async function submitModal(){
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value.trim();
+      const email = document.getElementById('email').value.trim();
+      if(!username || !password){ modalMsg.textContent = 'username and password required'; return; }
+      try {
+        if(modalMode === 'register'){
+          const res = await fetch(API.register, {
+            method:'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ username, password, email })
+          });
+          const data = await res.json();
+          if(data.status === 'ok'){ modalMsg.textContent = 'Registered — you can login now'; }
+          else modalMsg.textContent = data.message || JSON.stringify(data);
+        } else {
+          const res = await fetch(API.login, {
+            method:'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ username, password })
+          });
+          const data = await res.json();
+          if(data.status === 'ok'){ state.user = { id: data.id, username: data.username }; persist(); closeModal(); flash('Logged in'); }
+          else modalMsg.textContent = data.message || 'Login failed';
+        }
+      } catch(err){
+        modalMsg.textContent = 'Server error or backend not running';
+        console.warn(err);
+      }
+    }
+
+    // ===== cart UI =====
+    const cartPanel = document.getElementById('cart-panel');
+    document.getElementById('btn-cart').addEventListener('click', ()=>{ renderCart(); cartPanel.classList.remove('hidden'); cartPanel.setAttribute('aria-hidden','false'); });
+    document.getElementById('close-cart').addEventListener('click', ()=>{ cartPanel.classList.add('hidden'); cartPanel.setAttribute('aria-hidden','true'); });
+    document.getElementById('checkout').addEventListener('click', checkout);
+
+    function renderCart(){
+      const container = document.getElementById('cart-items');
+      container.innerHTML = '';
+      let total = 0;
+      if(state.cart.length === 0){ container.innerHTML = '<div class="muted">Cart is empty</div>'; }
+      state.cart.forEach(item => {
+        const div = document.createElement('div');
+        div.className = 'cart-item';
+        div.innerHTML = `<div>${escapeHtml(item.name)} x ${item.quantity}</div><div>₹${(item.price * item.quantity).toLocaleString()}</div>`;
+        container.appendChild(div);
+        total += item.price * item.quantity;
+      });
+      document.getElementById('cart-total').innerText = Number(total).toLocaleString();
+    }
+
+    async function checkout(){
+      if(!state.user){ alert('Please login to checkout'); return; }
+      if(state.cart.length === 0){ alert('Cart empty'); return; }
+      const total = state.cart.reduce((s,i)=>s + i.price*i.quantity, 0);
+      const payload = { userId: state.user.id, total, items: state.cart };
+      try {
+        const res = await fetch(API.checkout, {
+          method:'POST',
+          headers:{ 'Content-Type':'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if(data.status === 'ok'){ alert('Order placed — ID: ' + data.orderId); state.cart = []; persist(); renderCart(); cartPanel.classList.add('hidden'); }
+        else alert('Checkout failed: ' + (data.message || JSON.stringify(data)));
+      } catch(err){
+        alert('Checkout error or backend not running. See console.');
+        console.warn(err);
+      }
+    }
+
+    // ===== quick product view (small modal) =====
+    function openQuickView(p){
+      // reuse main modal: show details and allow add
+      modalTitle.textContent = p.name || 'Product';
+      document.getElementById('username').value = ''; // clear fields
+      document.getElementById('password').value = '';
+      document.getElementById('email').value = '';
+      document.getElementById('email').style.display = 'none';
+      modalMsg.innerHTML = `
+        <div style="display:flex;gap:12px">
+          <img src="${escapeHtml(p.image_url || SVG_TSHIRT)}" style="width:100px;height:80px;object-fit:cover;border-radius:8px" alt="">
+          <div>
+            <div style="font-weight:600">₹${Number(p.price).toLocaleString()}</div>
+            <div class="muted" style="max-width:200px">${escapeHtml(p.description || '')}</div>
+            <div style="margin-top:8px"><button id="add-from-view" class="btn">Add to cart</button></div>
+          </div>
+        </div>
+      `;
+      modal.classList.remove('hidden');
+      modal.setAttribute('aria-hidden','false');
+      // attach handler
+      setTimeout(()=> {
+        const b = document.getElementById('add-from-view');
+        if(b) b.addEventListener('click', ()=>{ state.cart.push({ id: Number(p.id), name:p.name, price:Number(p.price), quantity:1 }); persist(); flash('Added'); closeModal(); });
+      }, 50);
+    }
+
+    // ===== init =====
+    persist();
+    loadProducts();
+  })();
+  </script>
+</body>
+</html>
